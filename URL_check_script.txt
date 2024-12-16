@@ -1,0 +1,64 @@
+# Input file containing URLs (one per line)
+$filePath = "C:\data\NPX_TEST\urls.txt"
+
+# Output file for the results
+$outputPath = "C:\data\NPX_TEST\output.csv"
+
+# Prepare output array
+$results = @()
+
+# Check if the input file exists
+if (-Not (Test-Path -Path $filePath)) {
+    Write-Host "Input file not found at $filePath" -ForegroundColor Red
+    exit
+}
+
+Write-Host "Processing URLs from $filePath..."
+
+# Read each URL from the file
+Get-Content -Path $filePath | ForEach-Object -Process {
+    $url = $_.Trim()
+    if (-not [string]::IsNullOrWhiteSpace($url)) {
+        Write-Host "Processing URL: $url" -ForegroundColor Cyan
+        try {
+            # Resolve the URL to an IP address
+            $ipRecords = Resolve-DnsName -Name $url -ErrorAction Stop | Where-Object { $_.QueryType -eq 'A' }
+
+            if ($ipRecords) {
+                foreach ($record in $ipRecords) {
+                    $ipAddress = $record.IPAddress
+                    # Ping the IP address
+                    $pingResult = Test-Connection -ComputerName $ipAddress -Count 1 -Quiet
+                    $status = if ($pingResult) { "Reachable" } else { "Unreachable" }
+
+                    # Add result to output array
+                    $results += [PSCustomObject]@{
+                        URL        = $url
+                        IPAddress  = $ipAddress
+                        Status     = $status
+                    }
+                }
+            } else {
+                $results += [PSCustomObject]@{
+                    URL        = $url
+                    IPAddress  = "N/A"
+                    Status     = "No IP Found"
+                }
+            }
+        } catch {
+            # Handle errors
+            $errorMessage = $_.Exception.Message
+            $results += [PSCustomObject]@{
+                URL        = $url
+                IPAddress  = "Error"
+                Status     = "Error: $errorMessage"
+            }
+            Write-Host "Error processing URL: $url - $errorMessage" -ForegroundColor Yellow
+        }
+    }
+}
+
+# Export results to CSV
+$results | Export-Csv -Path $outputPath -NoTypeInformation -Encoding UTF8
+
+Write-Host "Process completed. Results saved to $outputPath" -ForegroundColor Green
